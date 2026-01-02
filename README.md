@@ -2,14 +2,19 @@
 
 A serverless video transcoding pipeline using AWS services. This system automatically processes videos uploaded to S3, transcodes them into multiple resolutions using FFmpeg, and stores the output in a production S3 bucket.
 
-## Architecture
+## System Design
 
-1. Video uploaded to S3 triggers an event to SQS
-2. SQS Consumer (Node.js) polls for messages
-3. ECS Fargate task spins up with the video details
-4. FFmpeg transcodes video to 360p, 480p, and 720p
-5. Transcoded videos uploaded to production S3 bucket
-6. Temporary files cleaned up automatically
+![Video Transcoding Pipeline - System Design](./System-Design.png)
+
+### Architecture Flow
+
+1. **User Upload** → Video uploaded to S3 Source Bucket
+2. **S3 Event** → S3 triggers event notification to SQS Queue
+3. **SQS Consumer** → Node.js service polls queue (long-polling)
+4. **ECS Fargate** → Container spins up via RunTaskCommand
+5. **FFmpeg Transcode** → Video transcoded to 360p, 480p, and 720p
+6. **Production Upload** → Transcoded videos uploaded to production S3
+7. **Cleanup** → Temporary files cleaned up automatically
 
 ## Prerequisites
 

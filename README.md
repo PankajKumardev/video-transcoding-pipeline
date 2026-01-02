@@ -9,6 +9,7 @@ A serverless video transcoding pipeline using AWS services. This system automati
 3. ECS Fargate task spins up with the video details
 4. FFmpeg transcodes video to 360p, 480p, and 720p
 5. Transcoded videos uploaded to production S3 bucket
+6. Temporary files cleaned up automatically
 
 ## Prerequisites
 
@@ -119,6 +120,13 @@ The pipeline transcodes videos to the following resolutions:
 - Launch Type: Fargate
 - Operating System: Linux/X86_64
 - Network Mode: awsvpc
+
+## Features
+
+- Parallel transcoding to multiple resolutions
+- Automatic cleanup of temporary files after processing
+- Long polling for efficient SQS message consumption
+- Environment-based configuration (no hardcoded secrets)
 
 ## Roadmap
 

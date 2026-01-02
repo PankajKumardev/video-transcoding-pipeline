@@ -4,6 +4,7 @@ import {
   PutObjectCommand,
 } from '@aws-sdk/client-s3';
 import oldfs from 'node:fs';
+import fs from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import ffmpeg from 'fluent-ffmpeg';
@@ -79,6 +80,20 @@ async function init() {
   });
   const videoFiles = await Promise.all(promises);
   console.log('All videos transcoded and uploaded:', videoFiles);
+
+  console.log('Cleaning up temporary files...');
+  try {
+    await fs.unlink(originalFilePath);
+    console.log(`Deleted ${originalFilePath}`);
+
+    for (const file of videoFiles) {
+      await fs.unlink(file);
+      console.log(`Deleted ${file}`);
+    }
+    console.log('Cleanup completed.');
+  } catch (err) {
+    console.error('Error during cleanup:', err);
+  }
 }
 
 init().finally(() => process.exit(0));

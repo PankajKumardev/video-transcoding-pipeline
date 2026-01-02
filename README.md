@@ -120,6 +120,13 @@ The pipeline transcodes videos to the following resolutions:
 - Operating System: Linux/X86_64
 - Network Mode: awsvpc
 
+## Roadmap
+
+- [ ] HLS (HTTP Live Streaming) output support
+- [ ] Adaptive bitrate streaming
+- [ ] Thumbnail generation
+- [ ] Progress notifications via SNS/WebSocket
+
 ## License
 
 MIT

@@ -23,30 +23,61 @@ const s3Client = new S3Client({
   },
 });
 
-//Env
 const BUCKET = process.env.BUCKET_NAME || '';
 const KEY = process.env.KEY || '';
+
+async function uploadDirectoryToS3(localDir, s3Prefix) {
+  const files = await fs.readdir(localDir);
+
+  for (const file of files) {
+    const filePath = `${localDir}/${file}`;
+    const s3Key = `${s3Prefix}/${file}`;
+
+    const contentType = file.endsWith('.m3u8')
+      ? 'application/vnd.apple.mpegurl'
+      : 'video/mp2t';
+
+    await s3Client.send(
+      new PutObjectCommand({
+        Bucket: 'production.pankajk.tech',
+        Key: s3Key,
+        Body: oldfs.createReadStream(filePath),
+        ContentType: contentType,
+      })
+    );
+    console.log(`Uploaded ${s3Key}`);
+  }
+}
 
 async function init() {
   // Download the original video from s3
   const videoId = Date.now().toString();
+  const hlsFolder = `hls-${videoId}`;
   const command = new GetObjectCommand({
     Bucket: BUCKET,
     Key: KEY,
   });
 
   const result = await s3Client.send(command);
-  const originalFilePath = `original-video.mp4`;
-  // await fs.writeFile(originalilePath, result.Body); // path, file
-
+  const originalFilePath = `vid-${videoId}.mp4`;
   await pipeline(result.Body, oldfs.createWriteStream(originalFilePath));
+  const orginalVideoPath = path.resolve(originalFilePath);
 
-  const orginalVideoPath = path.resolve('original-video.mp4');
+  // create hls folder for each resolution and with the videoId
+  for (const resolution of RESOLUTIONS) {
+    await fs.mkdir(`${hlsFolder}/${resolution.name}`, { recursive: true });
+  }
 
   // start the Transcode the video using ffmpeg
-
   const promises = RESOLUTIONS.map((resolution) => {
-    const outputPath = `vid-${videoId}-${resolution.name}.mp4`;
+    // Folder for this resolution: hls-1704389123456/360p
+    const outputDir = `${hlsFolder}/${resolution.name}`;
+
+    // Playlist file: hls-1704389123456/360p/playlist.m3u8
+    const outputPath = `${outputDir}/playlist.m3u8`;
+
+    // Segment files: hls-1704389123456/360p/segment_000.ts, segment_001.ts, etc.
+    const segmentPath = `${outputDir}/segment_%03d.ts`;
 
     return new Promise((resolve, reject) => {
       ffmpeg(orginalVideoPath)
@@ -54,22 +85,18 @@ async function init() {
         .withVideoCodec('libx264')
         .withAudioCodec('aac')
         .size(`${resolution.width}x${resolution.height}`)
-        .format('mp4')
+        .outputOptions([
+          '-hls_time 10',
+          '-hls_list_size 0',
+          `-hls_segment_filename ${segmentPath}`,
+        ])
         .on('end', async () => {
           console.log(`Transcoding to ${resolution.name} completed.`);
 
-          // Upload the transcoded video back to s3
-          const putCommand = new PutObjectCommand({
-            Bucket: 'production.pankajk.tech',
-            Key: outputPath,
-            Body: oldfs.createReadStream(outputPath),
-            ContentType: 'video/mp4',
-          });
-
+          // Upload ALL files in the resolution folder to S3
           try {
-            await s3Client.send(putCommand);
-            console.log(`Uploaded ${outputPath}`);
-            resolve(outputPath);
+            await uploadDirectoryToS3(outputDir, `${videoId}/${resolution.name}`);
+            resolve(resolution.name);
           } catch (err) {
             reject(err);
           }
@@ -78,18 +105,43 @@ async function init() {
         .run();
     });
   });
-  const videoFiles = await Promise.all(promises);
-  console.log('All videos transcoded and uploaded:', videoFiles);
 
+  await Promise.all(promises);
+  console.log('All resolutions transcoded and uploaded!');
+
+  // Create and upload master playlist
+  const masterPlaylist = `#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360
+360p/playlist.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=1400000,RESOLUTION=854x480
+480p/playlist.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1280x720
+720p/playlist.m3u8
+`;
+
+  const masterPath = `${hlsFolder}/master.m3u8`;
+  await fs.writeFile(masterPath, masterPlaylist);
+
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: 'production.pankajk.tech',
+      Key: `${videoId}/master.m3u8`,
+      Body: oldfs.createReadStream(masterPath),
+      ContentType: 'application/vnd.apple.mpegurl',
+    })
+  );
+  console.log('Uploaded master.m3u8');
+
+  // Cleanup
   console.log('Cleaning up temporary files...');
   try {
     await fs.unlink(originalFilePath);
     console.log(`Deleted ${originalFilePath}`);
 
-    for (const file of videoFiles) {
-      await fs.unlink(file);
-      console.log(`Deleted ${file}`);
-    }
+    await fs.rm(hlsFolder, { recursive: true, force: true });
+    console.log(`Deleted ${hlsFolder}`);
+
     console.log('Cleanup completed.');
   } catch (err) {
     console.error('Error during cleanup:', err);

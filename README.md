@@ -1,6 +1,6 @@
 # Video Transcoding Pipeline
 
-A serverless video transcoding pipeline using AWS services. This system automatically processes videos uploaded to S3, transcodes them into multiple resolutions using FFmpeg, and stores the output in a production S3 bucket.
+A serverless video transcoding pipeline using AWS services. This system automatically processes videos uploaded to S3, transcodes them into **HLS (HTTP Live Streaming)** format with multiple resolutions using FFmpeg, and stores the output in a production S3 bucket for adaptive bitrate streaming.
 
 ## System Design
 
@@ -12,9 +12,32 @@ A serverless video transcoding pipeline using AWS services. This system automati
 2. **S3 Event** → S3 triggers event notification to SQS Queue
 3. **SQS Consumer** → Node.js service polls queue (long-polling)
 4. **ECS Fargate** → Container spins up via RunTaskCommand
-5. **FFmpeg Transcode** → Video transcoded to 360p, 480p, and 720p
-6. **Production Upload** → Transcoded videos uploaded to production S3
-7. **Cleanup** → Temporary files cleaned up automatically
+5. **FFmpeg Transcode** → Video transcoded to HLS format (360p, 480p, 720p)
+6. **HLS Output** → Creates `.m3u8` playlists and `.ts` segments for each resolution
+7. **Master Playlist** → Generates `master.m3u8` for adaptive bitrate streaming
+8. **Production Upload** → All HLS files uploaded to production S3
+9. **Cleanup** → Temporary files cleaned up automatically
+
+## HLS Output Structure
+
+```
+production-bucket/
+└── {videoId}/
+    ├── master.m3u8              # Master playlist (load this to play)
+    ├── 360p/
+    │   ├── playlist.m3u8        # 360p quality playlist
+    │   ├── segment_000.ts       # Video segments
+    │   ├── segment_001.ts
+    │   └── ...
+    ├── 480p/
+    │   ├── playlist.m3u8
+    │   └── segment_xxx.ts
+    └── 720p/
+        ├── playlist.m3u8
+        └── segment_xxx.ts
+```
+
+**To play the video:** `https://your-bucket.s3.amazonaws.com/{videoId}/master.m3u8`
 
 ## Prerequisites
 
@@ -34,7 +57,7 @@ videoPipeliine/
 ├── src/
 │   └── index.ts          # SQS consumer that triggers ECS tasks
 ├── container/
-│   ├── index.js          # Video transcoding logic (runs in Docker)
+│   ├── index.js          # HLS transcoding logic (runs in Docker)
 │   ├── Dockerfile        # Docker image definition
 │   └── package.json      # Container dependencies
 ├── .env                  # Environment variables (do not commit)
@@ -112,13 +135,13 @@ npm run dev
 
 ## Output Resolutions
 
-The pipeline transcodes videos to the following resolutions:
+The pipeline transcodes videos to HLS format with the following resolutions:
 
-| Resolution | Width | Height |
-| ---------- | ----- | ------ |
-| 360p       | 640   | 360    |
-| 480p       | 854   | 480    |
-| 720p       | 1280  | 720    |
+| Resolution | Width | Height | Segment Duration |
+| ---------- | ----- | ------ | ---------------- |
+| 360p       | 640   | 360    | 10 seconds       |
+| 480p       | 854   | 480    | 10 seconds       |
+| 720p       | 1280  | 720    | 10 seconds       |
 
 ## AWS ECS Task Configuration
 
@@ -128,17 +151,19 @@ The pipeline transcodes videos to the following resolutions:
 
 ## Features
 
-- Parallel transcoding to multiple resolutions
-- Automatic cleanup of temporary files after processing
-- Long polling for efficient SQS message consumption
-- Environment-based configuration (no hardcoded secrets)
+- ✅ **HLS (HTTP Live Streaming)** output with `.m3u8` playlists and `.ts` segments
+- ✅ **Adaptive Bitrate Streaming** via master playlist
+- ✅ Parallel transcoding to multiple resolutions
+- ✅ Automatic cleanup of temporary files after processing
+- ✅ Long polling for efficient SQS message consumption
+- ✅ Environment-based configuration (no hardcoded secrets)
 
 ## Roadmap
 
-- [ ] HLS (HTTP Live Streaming) output support
-- [ ] Adaptive bitrate streaming
 - [ ] Thumbnail generation
 - [ ] Progress notifications via SNS/WebSocket
+- [ ] DRM support
+- [ ] Custom bitrate configurations
 
 ## License
 
